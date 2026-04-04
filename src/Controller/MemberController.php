@@ -7,6 +7,8 @@ use App\Repository\MemberRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\File\Exception\FileException;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\Routing\Attribute\Route;
 
@@ -28,20 +30,31 @@ class MemberController extends AbstractController
         return $this->json($member, 200, [], ['groups' => 'member:read']);
     }
 
-    // CREATE
+    // CREATE avec upload
     #[Route('', name: 'members_create', methods: ['POST'])]
     public function create(Request $request, EntityManagerInterface $em): JsonResponse
     {
-        $data = json_decode($request->getContent(), true);
+        $name = $request->request->get('name');
+        /** @var UploadedFile $imageFile */
+        $imageFile = $request->files->get('image');
 
-        if (!isset($data['name']) || !isset($data['image'])) {
-            return $this->json(['error' => 'Missing data'], 400);
-        }
+        if (!$name) return $this->json(['error' => 'Missing name'], 400);
 
         $member = new Member();
-        $member->setName($data['name']);
-        $member->setImage($data['image']);
+        $member->setName($name);
         $member->setCreatedAt(new \DateTimeImmutable());
+
+        // Upload fichier
+        if ($imageFile) {
+            $uploadsDir = $this->getParameter('uploads_directory'); // à configurer dans services.yaml
+            $filename = uniqid() . '.' . $imageFile->guessExtension();
+            try {
+                $imageFile->move($uploadsDir, $filename);
+            } catch (FileException $e) {
+                return $this->json(['error' => 'Upload failed'], 500);
+            }
+            $member->setImage('/uploads/' . $filename);
+        }
 
         $em->persist($member);
         $em->flush();
@@ -49,14 +62,26 @@ class MemberController extends AbstractController
         return $this->json($member, 201, [], ['groups' => 'member:read']);
     }
 
-    // UPDATE
-    #[Route('/{id}', name: 'members_update', methods: ['PUT'], requirements: ['id' => '\d+'])]
+    // UPDATE avec upload
+    #[Route('/{id}', name: 'members_update', methods: ['POST'], requirements: ['id' => '\d+'])]
     public function update(Request $request, Member $member, EntityManagerInterface $em): JsonResponse
     {
-        $data = json_decode($request->getContent(), true);
+        $name = $request->request->get('name');
+        /** @var UploadedFile $imageFile */
+        $imageFile = $request->files->get('image');
 
-        if (isset($data['name'])) $member->setName($data['name']);
-        if (isset($data['image'])) $member->setImage($data['image']);
+        if ($name) $member->setName($name);
+
+        if ($imageFile) {
+            $uploadsDir = $this->getParameter('uploads_directory');
+            $filename = uniqid() . '.' . $imageFile->guessExtension();
+            try {
+                $imageFile->move($uploadsDir, $filename);
+            } catch (FileException $e) {
+                return $this->json(['error' => 'Upload failed'], 500);
+            }
+            $member->setImage('/uploads/' . $filename);
+        }
 
         $em->flush();
         return $this->json($member, 200, [], ['groups' => 'member:read']);
